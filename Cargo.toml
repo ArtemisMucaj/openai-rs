@@ -1,0 +1,38 @@
+[package]
+name = "openai-rs"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Client for OpenAI-compatible servers: Responses + Chat Completions, streaming, structured output, model discovery, and embeddings"
+repository = "https://github.com/ArtemisMucaj/openai-rs"
+
+[lib]
+name = "openai_rs"
+path = "src/lib.rs"
+
+[dependencies]
+# Async
+async-trait = "0.1"
+futures-util = "0.3"
+tokio = { version = "1.35", features = ["sync", "time"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+thiserror = "1.0"
+
+# Logging
+tracing = "0.1"
+
+# HTTP client
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "stream",
+    "rustls-tls",
+] }
+
+[dev-dependencies]
+tokio = { version = "1.35", features = ["full"] }
+wiremock = "0.6"
