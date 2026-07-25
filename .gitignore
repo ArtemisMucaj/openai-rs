@@ -1,0 +1,30 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+
+# Cargo.lock is not committed: this crate is a library, so the lockfile of
+# whichever binary depends on it is the one that matters.
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log
+
+# Test coverage
+*.profraw
+*.profdata
+coverage/
