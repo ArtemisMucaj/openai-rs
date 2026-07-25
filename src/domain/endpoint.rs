@@ -107,6 +107,25 @@ impl Endpoint {
         self
     }
 
+    /// Several extra headers at once.
+    ///
+    /// The counterpart to [`Self::with_header`] for providers that publish
+    /// their required headers as a set: a caller can forward the whole set in
+    /// one call without knowing what is in it, which keeps that knowledge with
+    /// the provider that owns it.
+    pub fn with_headers<N, V>(mut self, headers: impl IntoIterator<Item = (N, V)>) -> Self
+    where
+        N: Into<String>,
+        V: Into<String>,
+    {
+        self.headers.extend(
+            headers
+                .into_iter()
+                .map(|(name, value)| (name.into(), value.into())),
+        );
+        self
+    }
+
     /// Override the route layout — see [`ApiRoutes`].
     pub fn with_routes(mut self, routes: ApiRoutes) -> Self {
         self.routes = routes;
@@ -176,6 +195,39 @@ mod tests {
         let unversioned = ApiRoutes::unversioned();
         assert_eq!(unversioned.responses, "/responses");
         assert_eq!(unversioned.chat_completions, "/chat/completions");
+    }
+
+    #[test]
+    fn with_headers_forwards_a_whole_set() {
+        // A provider hands over its required headers as one value; the caller
+        // forwards them without needing to know what is in the set.
+        let required = vec![
+            ("X-Integration-Id".to_string(), "some-client".to_string()),
+            ("X-Api-Version".to_string(), "2025-04-01".to_string()),
+        ];
+        let endpoint = Endpoint::new("http://x")
+            .with_header("First", "1")
+            .with_headers(required)
+            .with_header("Last", "9");
+
+        let names: Vec<&str> = endpoint
+            .headers()
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            ["First", "X-Integration-Id", "X-Api-Version", "Last"],
+            "a forwarded set must slot in where it was applied"
+        );
+    }
+
+    #[test]
+    fn with_headers_accepts_borrowed_pairs() {
+        // Providers commonly expose their headers as &[(&str, &str)].
+        let endpoint = Endpoint::new("http://x").with_headers([("A", "1"), ("B", "2")]);
+        assert_eq!(endpoint.headers().len(), 2);
+        assert_eq!(endpoint.headers()[0], ("A".to_string(), "1".to_string()));
     }
 
     #[test]
