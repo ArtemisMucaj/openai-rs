@@ -206,23 +206,25 @@ async fn send_with_gate_retry<B: Serialize>(
     path: &str,
     body: &B,
 ) -> Result<reqwest::Response, ProtocolError> {
-    for attempt in 0..=GATED_403_RETRIES {
+    // A `loop` rather than a bounded `for`: the exit is the `return` below, so
+    // there is no fall-through path needing an unreachable panic to satisfy the
+    // compiler — and no way for a later edit to the bound to make one reachable.
+    let mut attempt = 0;
+    loop {
         let response = transport
             .post(path, body)
             .await
             .map_err(ProtocolError::fatal)?;
 
-        if response.status() != reqwest::StatusCode::FORBIDDEN || attempt == GATED_403_RETRIES {
+        let gated = response.status() == reqwest::StatusCode::FORBIDDEN;
+        if !gated || attempt >= GATED_403_RETRIES {
             return Ok(response);
         }
-        debug!(
-            "Responses API returned 403 (attempt {}), retrying",
-            attempt + 1
-        );
+
+        attempt += 1;
+        debug!("Responses API returned 403 (attempt {attempt}), retrying");
         tokio::time::sleep(GATED_403_BACKOFF).await;
     }
-    // The loop always returns on its final iteration.
-    unreachable!("gate-retry loop returns on the last attempt")
 }
 
 /// Consume the SSE stream, forwarding text deltas as they arrive.
