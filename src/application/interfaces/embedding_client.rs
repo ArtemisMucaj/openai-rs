@@ -16,9 +16,8 @@ pub trait EmbeddingClient: Send + Sync {
     /// Defaults to a one-element [`Self::embed_batch`]; providers with a cheaper
     /// single-input path may override it.
     async fn embed(&self, input: &str) -> Result<Vec<f32>, OpenAiError> {
-        let vectors = self
-            .embed_batch(std::slice::from_ref(&input.to_string()))
-            .await?;
+        let inputs = [input.to_string()];
+        let vectors = self.embed_batch(&inputs).await?;
         vectors
             .into_iter()
             .next()

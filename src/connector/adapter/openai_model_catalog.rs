@@ -77,10 +77,9 @@ impl ModelCatalog for OpenAiModelCatalog {
         let body = tokio::time::timeout(self.timeout, fetch)
             .await
             .map_err(|_| {
-                OpenAiError::transport(format!(
-                    "listing models timed out after {}s",
-                    self.timeout.as_secs()
-                ))
+                // `{:?}` rather than `as_secs()`: a sub-second budget
+                // truncates to "0s", which reads as a bug rather than a limit.
+                OpenAiError::transport(format!("listing models timed out after {:?}", self.timeout))
             })??;
 
         Ok(body.data.into_iter().map(Model::from).collect())

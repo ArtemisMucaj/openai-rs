@@ -4,6 +4,12 @@
 //! payload rides on `data:` lines. Bytes arrive in arbitrary chunks that split
 //! lines anywhere, so the decoder buffers until a newline is seen and only then
 //! yields a complete payload.
+//!
+//! The buffer holds **raw bytes**, not text. A chunk boundary can land in the
+//! middle of a multi-byte character, and decoding each chunk as it arrives
+//! would replace that half-character with U+FFFD — permanently, since the
+//! replacement is not undone when the rest of the character shows up. Decoding
+//! is therefore deferred until a complete line is in hand.
 
 /// Sentinel that ends a Chat Completions stream.
 pub(crate) const DONE_SENTINEL: &str = "[DONE]";
@@ -11,7 +17,7 @@ pub(crate) const DONE_SENTINEL: &str = "[DONE]";
 /// Incremental `data:` payload extractor.
 #[derive(Debug, Default)]
 pub(crate) struct SseDecoder {
-    buffer: String,
+    buffer: Vec<u8>,
 }
 
 impl SseDecoder {
@@ -19,11 +25,9 @@ impl SseDecoder {
         Self::default()
     }
 
-    /// Append a received chunk. Invalid UTF-8 is replaced rather than rejected:
-    /// a chunk boundary can split a multi-byte character, and the replacement
-    /// resolves once the rest arrives.
+    /// Append a received chunk verbatim.
     pub(crate) fn push(&mut self, bytes: &[u8]) {
-        self.buffer.push_str(&String::from_utf8_lossy(bytes));
+        self.buffer.extend_from_slice(bytes);
     }
 
     /// Every complete `data:` payload buffered so far, in arrival order.
@@ -33,17 +37,25 @@ impl SseDecoder {
     /// nothing is lost by keying off the payload alone.
     pub(crate) fn drain(&mut self) -> Vec<String> {
         let mut payloads = Vec::new();
-        while let Some(newline) = self.buffer.find('\n') {
-            let line = self.buffer[..newline].trim_end_matches('\r').to_string();
-            self.buffer.drain(..=newline);
 
-            let payload = line
+        while let Some(newline) = self.buffer.iter().position(|byte| *byte == b'\n') {
+            let mut line: Vec<u8> = self.buffer.drain(..=newline).collect();
+            line.pop(); // the '\n' itself
+            if line.last() == Some(&b'\r') {
+                line.pop();
+            }
+
+            // The line is complete, so any invalid UTF-8 in it is genuinely
+            // invalid rather than an artifact of where the chunk boundary fell.
+            let text = String::from_utf8_lossy(&line);
+            let payload = text
                 .strip_prefix("data: ")
-                .or_else(|| line.strip_prefix("data:"));
+                .or_else(|| text.strip_prefix("data:"));
             if let Some(payload) = payload {
                 payloads.push(payload.trim().to_string());
             }
         }
+
         payloads
     }
 }
@@ -78,15 +90,33 @@ mod tests {
     }
 
     #[test]
-    fn survives_a_split_multibyte_character() {
-        // "é" is two bytes; splitting it across chunks must not corrupt the
-        // rest of the stream.
+    fn a_chunk_boundary_inside_a_character_does_not_corrupt_it() {
+        // The boundary must fall *within* the two bytes of 'é' — splitting on
+        // either side of it proves nothing, since both halves are then valid
+        // UTF-8 on their own.
+        let line = "data: café\n".as_bytes();
+        let split = line.len() - 2; // between 0xC3 and 0xA9
+        assert!(
+            std::str::from_utf8(&line[..split]).is_err(),
+            "this test is only meaningful if the first chunk is invalid UTF-8"
+        );
+
         let mut decoder = SseDecoder::new();
-        let text = "data: caf\u{e9}\n".as_bytes();
-        let split = text.len() - 3;
-        decoder.push(&text[..split]);
-        decoder.push(&text[split..]);
-        assert_eq!(decoder.drain(), vec!["caf\u{e9}"]);
+        decoder.push(&line[..split]);
+        assert!(decoder.drain().is_empty());
+        decoder.push(&line[split..]);
+        assert_eq!(decoder.drain(), vec!["café"]);
+    }
+
+    #[test]
+    fn a_character_split_one_byte_at_a_time_survives() {
+        // The pathological case: every byte arrives in its own chunk.
+        let line = "data: 🎉 done\n".as_bytes();
+        let mut decoder = SseDecoder::new();
+        for byte in line {
+            decoder.push(&[*byte]);
+        }
+        assert_eq!(decoder.drain(), vec!["🎉 done"]);
     }
 
     #[test]

@@ -81,6 +81,17 @@ pub(crate) fn is_endpoint_absent(status: u16) -> bool {
     matches!(status, 404 | 405 | 501)
 }
 
+/// Whether a status plausibly means "I cannot honor that schema".
+///
+/// Narrower than "any 4xx" on purpose. Treating every client error as a schema
+/// rejection makes an expired key or a rate limit look like one: the call is
+/// retried unconstrained, the failure is reported with a misleading warning,
+/// and the second request adds load precisely when the server is refusing it.
+/// Servers signal an unusable request body with `400` or `422`.
+pub(crate) fn is_schema_rejection(status: u16) -> bool {
+    matches!(status, 400 | 422)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -101,6 +112,18 @@ mod tests {
         assert!(!is_wrong_api(r#"{"error":{"message":"no code field"}}"#));
         assert!(!is_wrong_api("not json at all"));
         assert!(!is_wrong_api(""));
+    }
+
+    #[test]
+    fn only_request_body_rejections_count_as_schema_failures() {
+        assert!(is_schema_rejection(400));
+        assert!(is_schema_rejection(422));
+        // An expired key or a rate limit is not the schema's fault; retrying
+        // unconstrained would just fail again, more loudly and under load.
+        assert!(!is_schema_rejection(401));
+        assert!(!is_schema_rejection(403));
+        assert!(!is_schema_rejection(429));
+        assert!(!is_schema_rejection(500));
     }
 
     #[test]

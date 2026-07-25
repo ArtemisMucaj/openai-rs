@@ -8,7 +8,9 @@
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 
-use super::protocol::{is_endpoint_absent, is_wrong_api, ProtocolError, TokenSink};
+use super::protocol::{
+    is_endpoint_absent, is_schema_rejection, is_wrong_api, ProtocolError, TokenSink,
+};
 use super::sse::{SseDecoder, DONE_SENTINEL};
 use super::transport::{read_body, Transport};
 use crate::domain::{ChatRequest, OpenAiError};
@@ -143,7 +145,7 @@ pub(crate) async fn execute(
         if is_wrong_api(&text) || is_endpoint_absent(status.as_u16()) {
             return Err(ProtocolError::WrongApi(error));
         }
-        if request.schema.is_some() && status.is_client_error() {
+        if request.schema.is_some() && is_schema_rejection(status.as_u16()) {
             return Err(ProtocolError::SchemaUnsupported);
         }
         return Err(ProtocolError::fatal(error));

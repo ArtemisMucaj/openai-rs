@@ -83,6 +83,20 @@ impl OpenAiEmbeddingClient {
         let mut entries = body.data;
         entries.sort_by_key(|entry| entry.index);
 
+        // A matching count is not enough: duplicated or out-of-range indexes
+        // pass the length check and then pair vectors with the wrong inputs,
+        // which no caller can detect afterwards. Sorted indexes must be exactly
+        // `0..n` for the mapping to be one-to-one.
+        for (position, entry) in entries.iter().enumerate() {
+            if entry.index != position {
+                return Err(OpenAiError::decode(format!(
+                    "embedding indexes do not map one-to-one onto the inputs \
+                     (expected {position} at this position, got {})",
+                    entry.index
+                )));
+            }
+        }
+
         Ok(entries
             .into_iter()
             .map(|entry| {

@@ -4,7 +4,7 @@
 //! actually hit, in what order, and how many times.
 
 use openai_rs::{ApiFlavor, ChatClient, ChatRequest, Endpoint, JsonSchema, OpenAiChatClient};
-use wiremock::matchers::{body_json_string, method, path};
+use wiremock::matchers::{body_json, method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
 const RESPONSES_PATH: &str = "/v1/responses";
@@ -70,17 +70,16 @@ async fn sends_system_and_user_turns_as_responses_input() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path(RESPONSES_PATH))
-        .and(body_json_string(
-            serde_json::json!({
-                "model": "test-model",
-                "input": [
-                    {"role": "system", "content": "sys"},
-                    {"role": "user", "content": "usr"}
-                ],
-                "stream": false
-            })
-            .to_string(),
-        ))
+        // Structural JSON matching, not string equality: key order and
+        // whitespace are not part of the contract.
+        .and(body_json(serde_json::json!({
+            "model": "test-model",
+            "input": [
+                {"role": "system", "content": "sys"},
+                {"role": "user", "content": "usr"}
+            ],
+            "stream": false
+        })))
         .respond_with(ResponseTemplate::new(200).set_body_json(responses_body("ok")))
         .mount(&server)
         .await;
